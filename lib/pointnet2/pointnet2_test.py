@@ -11,9 +11,9 @@ import numpy as np
 
 import os
 import sys
+import pointnet2_utils
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
-import pointnet2_utils
 
 def test_interpolation_grad():
     batch_size = 1
