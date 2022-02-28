@@ -27,9 +27,11 @@ class Pointnet2Backbone(nn.Module):
         super().__init__()
 
         if paconv_backbone == False:
-            from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotes
+            from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotes 
+            # from lib.pointnet2.pointnet2_modules import PointnetFPModule
         else:
             from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotes_PAConv as PointnetSAModuleVotes
+            # from lib.pointnet2.pointnet2_modules import PointnetFPModule_PAConv as PointnetFPModule
 
         self.paconv_backbone = paconv_backbone;
         self.input_feature_dim = input_feature_dim
