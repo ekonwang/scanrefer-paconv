@@ -77,7 +77,17 @@ class RefNet(nn.Module):
         #                                     #
         #######################################
 
-        # --------- HOUGH VOTING ---------
+        if not self.no_reference:
+            #######################################
+            #                                     #
+            #           LANGUAGE BRANCH           #
+            #                                     #
+            #######################################
+
+            # --------- LANGUAGE ENCODING ---------
+            data_dict = self.lang(data_dict)
+
+        # --------- Extract features ---------
         data_dict = self.backbone_net(data_dict)
                 
         # --------- HOUGH VOTING ---------
@@ -97,15 +107,6 @@ class RefNet(nn.Module):
         data_dict = self.proposal(xyz, features, data_dict)
 
         if not self.no_reference:
-            #######################################
-            #                                     #
-            #           LANGUAGE BRANCH           #
-            #                                     #
-            #######################################
-
-            # --------- LANGUAGE ENCODING ---------
-            data_dict = self.lang(data_dict)
-
             #######################################
             #                                     #
             #          PROPOSAL MATCHING          #
