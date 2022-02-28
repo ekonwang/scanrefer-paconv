@@ -12,7 +12,7 @@ class LangModule(nn.Module):
 
         self.num_text_classes = num_text_classes
         self.use_lang_classifier = use_lang_classifier
-        self.use_bidir = use_bidir
+        self.use_bidir = use_bidir # if use bidirection gru.
 
         self.gru = nn.GRU(
             input_size=emb_size,
@@ -34,14 +34,11 @@ class LangModule(nn.Module):
         """
         encode the input descriptions
         """
-
         word_embs = data_dict["lang_feat"]
         lang_feat = pack_padded_sequence(word_embs, data_dict["lang_len"], batch_first=True, enforce_sorted=False)
-    
         # encode description
         _, lang_last = self.gru(lang_feat)
         lang_last = lang_last.permute(1, 0, 2).contiguous().flatten(start_dim=1) # batch_size, hidden_size * num_dir
-
         # store the encoded language features
         data_dict["lang_emb"] = lang_last # B, hidden_size
         

@@ -129,6 +129,8 @@ if __name__=='__main__':
     backbone_net = Pointnet2Backbone(input_feature_dim=3).cuda()
     print(backbone_net)
     backbone_net.eval()
-    out = backbone_net(torch.rand(16,20000,6).cuda())
+    data_dict = dict()
+    data_dict['point_clouds'] = torch.rand(16,20000,6).cuda()
+    out = backbone_net(data_dict)
     for key in sorted(out.keys()):
         print(key, '\t', out[key].shape)

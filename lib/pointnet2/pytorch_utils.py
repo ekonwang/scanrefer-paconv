@@ -64,7 +64,7 @@ class BatchNorm3d(_BNBase):
         super().__init__(in_size, batch_norm=nn.BatchNorm3d, name=name)
 
 
-class _ConvBase(nn.Sequential):
+class  _ConvBase(nn.Sequential):
 
     def __init__(
             self,

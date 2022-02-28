@@ -166,7 +166,7 @@ def get_scannet_scene_list(split):
     return scene_list
 
 def get_scanrefer(scanrefer_train, scanrefer_val, num_scenes):
-    if args.no_reference:
+    if args.no_reference: # lang information
         train_scene_list = get_scannet_scene_list("train")
         new_scanrefer_train = []
         for scene_id in train_scene_list:

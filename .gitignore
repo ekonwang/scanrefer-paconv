@@ -28,3 +28,7 @@ demo/.DS_Store
 
 # misc
 upload/
+
+# reference module
+PAConv/
+pcseg/
