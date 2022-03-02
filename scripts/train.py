@@ -55,6 +55,9 @@ def get_model(args):
         use_lang_classifier=(not args.no_lang_cls),
         use_bidir=args.use_bidir,
         no_reference=args.no_reference
+
+        ######## new ########
+
     )
 
     # trainable model
@@ -69,7 +72,8 @@ def get_model(args):
             num_proposal=args.num_proposals,
             input_feature_dim=input_channels,
             use_bidir=args.use_bidir,
-            no_reference=True
+            no_reference=True,
+            args=args
         )
 
         pretrained_path = os.path.join(CONF.PATH.OUTPUT, args.use_pretrained, "model_last.pth")
@@ -254,6 +258,11 @@ if __name__ == "__main__":
     parser.add_argument("--use_normal", action="store_true", help="Use RGB color in input.")
     parser.add_argument("--use_multiview", action="store_true", help="Use multiview images.")
     parser.add_argument("--use_bidir", action="store_true", help="Use bi-directional GRU.")
+
+    ######### new add #########
+    parser.add_argument("")
+    ######### ... #########
+
     parser.add_argument("--use_pretrained", type=str, help="Specify the folder name containing the pretrained detection module.")
     parser.add_argument("--use_checkpoint", type=str, help="Specify the checkpoint root", default="")
     args = parser.parse_args()

@@ -56,7 +56,7 @@ class ScoreNet(nn.Module):
 
 class PAConv(nn.Module):
 
-    def __init__(self, input_dim, output_dim, bn, activation, config):
+    def __init__(self, input_dim, output_dim, bn, activation, config, args = None):
         super().__init__()
         self.score_input = config.get('score_input', 'identity')
         self.score_norm = config.get('score_norm', 'softmax')
@@ -67,6 +67,10 @@ class PAConv(nn.Module):
         self.kernel_input = config.get('kernel_input', 'neighbor')
         self.input_dim = input_dim
         self.output_dim = output_dim
+
+        ######### new #########
+        self.score_lang = args.use_lang_paconv
+        ######### ... #########
 
         self.bn = nn.BatchNorm2d(output_dim, momentum=0.1) if bn else None
         self.activation = activation
@@ -87,6 +91,10 @@ class PAConv(nn.Module):
         elif self.score_input == 'ed':
             self.scorenet_input_dim = 10
         else: raise ValueError()
+
+        if self.score_lang:
+            lang_feat_dim = args.hidden if args.use_bidir == False else args.hidden * 2 # lang_feat: 256 | 512
+            self.scorenet_input_dim = self.scorenet_input_dim +  lang_feat_dim
 
         if self.init == "kaiming":
             _init = nn.init.kaiming_normal_
@@ -112,13 +120,16 @@ class PAConv(nn.Module):
                 (B, C, N1, K) tensor of the descriptors of the the features
             grouped_xyz : torch.Tensor
                 (B, 3, N1, K) tensor of the descriptors of the the features
+            langfeat: torch.Tensor
+                (B, lang_feat_dim, N1, K) tensor of extracted features of words, 
+                    originally (B, lang_feat_dim) expansion in upper layer already
             Returns
             -------
             out_feat : torch.Tensor
-                (B, C, N1, \sum_k(mlps[k][-1])) tensor of the new_features descriptors
+                (B, C1, N1, K) tensor of the new_features descriptors
             """
 
-        in_feat, grouped_xyz = args
+        in_feat, grouped_xyz, lang_feat = args
         B, _, N1, K = in_feat.size()
         center_xyz = grouped_xyz[..., :1].repeat(1, 1, 1, K)
         grouped_xyz_diff = grouped_xyz - center_xyz  # b,3,n1,k
@@ -139,6 +150,9 @@ class PAConv(nn.Module):
             xyz = torch.cat((center_xyz, grouped_xyz, grouped_xyz_diff, ed), dim=1)
         else:
             raise NotImplementedError
+        
+        if self.score_lang:
+            xyz = torch.cat((xyz, lang_feat), dim = 1)
 
         scores = self.scorenet(xyz, score_norm=self.score_norm)  # b,n,k,m
         out_feat = torch.matmul(in_feat.permute(0, 2, 3, 1), self.weightbank).view(B, N1, K, self.m, -1)  # b,n1,k,m,cout
@@ -150,7 +164,7 @@ class PAConv(nn.Module):
         if self.activation is not None:
             out_feat = self.activation(out_feat)
 
-        return out_feat, grouped_xyz  # b,o1,n,k   b,3,n1,k
+        return out_feat, grouped_xyz, lang_feat  # b,o1,n,k   b,3,n1,k
 
     def __repr__(self):
         return 'PAConv(in_feat: {:d}, out_feat: {:d}, m: {:d}, hidden: {}, scorenet_input: {}, kernel_size: {})'.\
@@ -173,14 +187,17 @@ class PAConvCUDA(PAConv):
                 (B, 3, N1, K) tensor of the descriptors of the the features
             grouped_idx : torch.Tensor
                 (B, N1, K) tensor of the descriptors of the the features
+            langfeat: torch.Tensor
+                (B, lang_feat_dim, N1, K) tensor of extracted features of words, 
+                    originally (B, lang_feat_dim) expansion in upper layer already
             Returns
             -------
             out_feat : torch.Tensor
-                (B, C, N1) tensor of the new_features descriptors
+                (B, C1, N1, K) tensor of the new_features descriptors
             new_xyz : torch.Tensor
                 (B, N1, 3) tensor of the new features' xyz
             """
-        in_feat, grouped_xyz, grouped_idx = args
+        in_feat, grouped_xyz, grouped_idx, lang_feat = args
         B, Cin, N0 = in_feat.size()
         _, _, N1, K = grouped_xyz.size()
         center_xyz = grouped_xyz[..., :1].repeat(1, 1, 1, K)
@@ -199,6 +216,9 @@ class PAConvCUDA(PAConv):
             xyz = torch.cat((center_xyz, grouped_xyz, grouped_xyz_diff, ed), dim=1)
         else:
             raise NotImplementedError
+                
+        if self.score_lang:
+            xyz = torch.cat((xyz, lang_feat), dim = 1)
 
         scores = self.scorenet(xyz, score_norm=self.score_norm)  # b,n1,k,m
         kernel_feat, half_kernel_feat = assign_kernel_withoutk(in_feat, self.weightbank, self.m)
@@ -208,7 +228,7 @@ class PAConvCUDA(PAConv):
         if self.activation is not None:
             out_feat = self.activation(out_feat)
 
-        return out_feat, grouped_xyz, grouped_idx  # b,o1,n,k
+        return out_feat, grouped_xyz, grouped_idx, lang_feat  # b,o1,n,k
 
     def __repr__(self):
         return 'PAConvCUDA(in_feat: {:d}, out_feat: {:d}, m: {:d}, hidden: {}, scorenet_input: {}, kernel_size: {})'.\
