@@ -19,10 +19,12 @@ class Pointnet2Backbone(nn.Module):
             Number of input channels in the feature descriptor for each point.
             e.g. 3 for RGB.
     """
-    def __init__(self, input_feature_dim=0):
+    def __init__(self, input_feature_dim=0, args = None):
         super().__init__()
 
         self.input_feature_dim = input_feature_dim
+        ######### paconv backbone #########
+        self.args = args
 
         # --------- 4 SET ABSTRACTION LAYERS ---------
         self.sa1 = PointnetSAModuleVotes(
@@ -92,6 +94,9 @@ class Pointnet2Backbone(nn.Module):
         """
         
         pointcloud = data_dict["point_clouds"]
+        ######### new #########
+        if not self.args.no_reference:
+            lang_feat = data_dict['lang_emb']
 
         batch_size = pointcloud.shape[0]
 

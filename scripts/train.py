@@ -54,10 +54,10 @@ def get_model(args):
         num_proposal=args.num_proposals,
         use_lang_classifier=(not args.no_lang_cls),
         use_bidir=args.use_bidir,
-        no_reference=args.no_reference
+        no_reference=args.no_reference,
 
         ######## new ########
-
+        hidden_size=args.lang_hidden,
     )
 
     # trainable model
@@ -260,7 +260,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_bidir", action="store_true", help="Use bi-directional GRU.")
 
     ######### new add #########
-    parser.add_argument("")
+    parser.add_argument("--use_lang_paconv", action='store_true', help="use lang features in paconv.")
+    parser.add_argument("--lang_hidden", type=int, default=256, help="hidden features layer in lang module.")
     ######### ... #########
 
     parser.add_argument("--use_pretrained", type=str, help="Specify the folder name containing the pretrained detection module.")

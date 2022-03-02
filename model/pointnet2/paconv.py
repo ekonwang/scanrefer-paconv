@@ -56,7 +56,7 @@ class ScoreNet(nn.Module):
 
 class PAConv(nn.Module):
 
-    def __init__(self, input_dim, output_dim, bn, activation, config, args = None):
+    def __init__(self, input_dim, output_dim, bn, activation, config, args):
         super().__init__()
         self.score_input = config.get('score_input', 'identity')
         self.score_norm = config.get('score_norm', 'softmax')
@@ -173,8 +173,8 @@ class PAConv(nn.Module):
 
 class PAConvCUDA(PAConv):
 
-    def __init__(self, input_dim, output_dim, bn, activation, config):
-        super(PAConvCUDA, self).__init__(input_dim, output_dim, bn, activation, config)
+    def __init__(self, input_dim, output_dim, bn, activation, config, args):
+        super(PAConvCUDA, self).__init__(input_dim, output_dim, bn, activation, config, args)
 
     def forward(self, args):
 
@@ -239,7 +239,7 @@ class SharedPAConv(nn.Sequential):
 
     def __init__(
             self,
-            args: List[int],
+            mlps: List[int],
             *,
             config,
             bn: bool = False,
@@ -247,31 +247,34 @@ class SharedPAConv(nn.Sequential):
             preact: bool = False,
             first: bool = False,
             name: str = "",
+            args = None,
     ):
         super().__init__()
 
-        for i in range(len(args) - 1):
+        for i in range(len(mlps) - 1):
             if config.get('cuda', False):
                 self.add_module(
                     name + 'layer{}'.format(i),
                     PAConvCUDA(
-                        args[i],
-                        args[i + 1],
+                        mlps[i],
+                        mlps[i + 1],
                         bn=(not first or not preact or (i != 0)) and bn,
                         activation=activation
                         if (not first or not preact or (i != 0)) else None,
                         config=config,
+                        args=args
                     )
                 )
             else:
                 self.add_module(
                     name + 'layer{}'.format(i),
                     PAConv(
-                        args[i],
-                        args[i + 1],
+                        mlps[i],
+                        mlps[i + 1],
                         bn=(not first or not preact or (i != 0)) and bn,
                         activation=activation
                         if (not first or not preact or (i != 0)) else None,
                         config=config,
+                        args=args,
                     )
             )

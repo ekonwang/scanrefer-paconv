@@ -448,6 +448,12 @@ if __name__ == "__main__":
     parser.add_argument("--use_best", action="store_true", help="Use best bounding boxes as outputs.")
     parser.add_argument("--reference", action="store_true", help="evaluate the reference localization results")
     parser.add_argument("--detection", action="store_true", help="evaluate the object detection results")
+
+    ######### new add #########
+    parser.add_argument("--use_lang_paconv", action='store_true', help="use lang features in paconv.")
+    parser.add_argument("--lang_hidden", type=int, default=256, help="hidden features layer in lang module.")
+    ######### ... #########
+    
     args = parser.parse_args()
 
     # setting
