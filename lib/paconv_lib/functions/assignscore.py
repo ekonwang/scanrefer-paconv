@@ -21,7 +21,6 @@ class AssignScoreWithK(Function):
 
         B, N0, M, O = points.size()
         _, N1, K, _ = scores.size()
-
         output = torch.zeros([B, O, N1, K], dtype=points.dtype, device=points.device)
         output = output.contiguous()
         src.gpu.assign_score_withk_forward_cuda(B, N0, N1, M, K, O, agg[aggregate],

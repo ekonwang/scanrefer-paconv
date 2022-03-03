@@ -55,7 +55,11 @@ def get_model(args, config):
         num_proposal=args.num_proposals,
         input_feature_dim=input_channels,
         use_lang_classifier=(not args.no_lang_cls),
-        use_bidir=args.use_bidir
+        use_bidir=args.use_bidir,
+        
+        ######## new ########
+        hidden_size=args.lang_hidden,
+        args=args
     ).cuda()
 
     model_name = "model_last.pth" if args.detection else "model.pth"
@@ -450,10 +454,11 @@ if __name__ == "__main__":
     parser.add_argument("--detection", action="store_true", help="evaluate the object detection results")
 
     ######### new add #########
+    parser.add_argument("--use_paconv", action='store_true', help="use paconv in backbone.")
     parser.add_argument("--use_lang_paconv", action='store_true', help="use lang features in paconv.")
     parser.add_argument("--lang_hidden", type=int, default=256, help="hidden features layer in lang module.")
     ######### ... #########
-    
+
     args = parser.parse_args()
 
     # setting

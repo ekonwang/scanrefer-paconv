@@ -31,10 +31,16 @@ class RefNet(nn.Module):
         self.use_bidir = use_bidir      
         self.no_reference = no_reference
 
+        ######### new: confict detection #########
+        if not args.use_paconv and (
+            args.use_lang_paconv
+            ):
+            raise ValueError('paconv config conficts.')
+        ######### ... #########
 
         # --------- PROPOSAL GENERATION ---------
         # Backbone point feature learning
-        self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim, args = args)
 
         # Hough voting
         self.vgen = VotingModule(self.vote_factor, 256)

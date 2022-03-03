@@ -370,10 +370,8 @@ class QueryAndGroup(nn.Module):
             ret.append(grouped_xyz)
         if self.ret_unique_cnt:
             ret.append(unique_cnt)
-        if len(ret) == 1:
-            return ret[0]
-        else:
-            return tuple(ret)
+        ret.append(idx.long())
+        return tuple(ret)
 
 
 class GroupAll(nn.Module):

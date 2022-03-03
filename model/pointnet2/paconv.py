@@ -56,19 +56,21 @@ class ScoreNet(nn.Module):
 
 class PAConv(nn.Module):
 
-    def __init__(self, input_dim, output_dim, bn, activation, config, args):
+    def __init__(self, input_dim, output_dim, bn, activation, args, config = None):
         super().__init__()
-        self.score_input = config.get('score_input', 'identity')
-        self.score_norm = config.get('score_norm', 'softmax')
-        self.temp = config.get('temp', 1)
-        self.init = config.get('init', 'kaiming')
-        self.hidden = config.get('hidden', [16])
-        self.m = config.get('m', 8)
-        self.kernel_input = config.get('kernel_input', 'neighbor')
+        self.score_input = 'identity'
+        self.score_norm = 'softmax'
+        self.temp = 1
+        self.init = 'kaiming'
+        self.hidden = [16]
+        self.m = 8
+        self.kernel_input = 'neighbor'
         self.input_dim = input_dim
         self.output_dim = output_dim
 
         ######### new #########
+        if args == None:
+            raise ValueError('args should not be none.')
         self.score_lang = args.use_lang_paconv
         ######### ... #########
 
@@ -93,7 +95,7 @@ class PAConv(nn.Module):
         else: raise ValueError()
 
         if self.score_lang:
-            lang_feat_dim = args.hidden if args.use_bidir == False else args.hidden * 2 # lang_feat: 256 | 512
+            lang_feat_dim = args.lang_hidden if args.use_bidir == False else args.lang_hidden * 2 # lang_feat: 256 | 512
             self.scorenet_input_dim = self.scorenet_input_dim +  lang_feat_dim
 
         if self.init == "kaiming":
@@ -153,7 +155,7 @@ class PAConv(nn.Module):
         
         if self.score_lang:
             xyz = torch.cat((xyz, lang_feat), dim = 1)
-
+        import pdb; pdb.set_trace()
         scores = self.scorenet(xyz, score_norm=self.score_norm)  # b,n,k,m
         out_feat = torch.matmul(in_feat.permute(0, 2, 3, 1), self.weightbank).view(B, N1, K, self.m, -1)  # b,n1,k,m,cout
         out_feat = assign_score(score=scores, point_input=out_feat)  # b,n,k,o1,
@@ -173,8 +175,8 @@ class PAConv(nn.Module):
 
 class PAConvCUDA(PAConv):
 
-    def __init__(self, input_dim, output_dim, bn, activation, config, args):
-        super(PAConvCUDA, self).__init__(input_dim, output_dim, bn, activation, config, args)
+    def __init__(self, input_dim, output_dim, bn, activation, args, config = None):
+        super(PAConvCUDA, self).__init__(input_dim, output_dim, bn, activation, args, config)
 
     def forward(self, args):
 
@@ -219,7 +221,7 @@ class PAConvCUDA(PAConv):
                 
         if self.score_lang:
             xyz = torch.cat((xyz, lang_feat), dim = 1)
-
+        
         scores = self.scorenet(xyz, score_norm=self.score_norm)  # b,n1,k,m
         kernel_feat, half_kernel_feat = assign_kernel_withoutk(in_feat, self.weightbank, self.m)
         out_feat = assign_score_cuda(scores, kernel_feat, half_kernel_feat, grouped_idx, aggregate='sum')  # b,o1,n1,k
@@ -241,7 +243,6 @@ class SharedPAConv(nn.Sequential):
             self,
             mlps: List[int],
             *,
-            config,
             bn: bool = False,
             activation=nn.ReLU(inplace=True),
             preact: bool = False,
@@ -252,29 +253,14 @@ class SharedPAConv(nn.Sequential):
         super().__init__()
 
         for i in range(len(mlps) - 1):
-            if config.get('cuda', False):
-                self.add_module(
-                    name + 'layer{}'.format(i),
-                    PAConvCUDA(
-                        mlps[i],
-                        mlps[i + 1],
-                        bn=(not first or not preact or (i != 0)) and bn,
-                        activation=activation
-                        if (not first or not preact or (i != 0)) else None,
-                        config=config,
-                        args=args
-                    )
+            self.add_module(
+                name + 'layer{}'.format(i),
+                PAConvCUDA(
+                    mlps[i],
+                    mlps[i + 1],
+                    bn=(not first or not preact or (i != 0)) and bn,
+                    activation=activation
+                    if (not first or not preact or (i != 0)) else None,
+                    args=args
                 )
-            else:
-                self.add_module(
-                    name + 'layer{}'.format(i),
-                    PAConv(
-                        mlps[i],
-                        mlps[i + 1],
-                        bn=(not first or not preact or (i != 0)) and bn,
-                        activation=activation
-                        if (not first or not preact or (i != 0)) else None,
-                        config=config,
-                        args=args,
-                    )
             )

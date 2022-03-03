@@ -6,7 +6,7 @@ import sys
 import os
 
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
-from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotes, PointnetFPModule
+from lib.pointnet2.pointnet2_modules import PointnetFPModule
 
 class Pointnet2Backbone(nn.Module):
     r"""
@@ -25,42 +25,50 @@ class Pointnet2Backbone(nn.Module):
         self.input_feature_dim = input_feature_dim
         ######### paconv backbone #########
         self.args = args
+        if args.use_paconv:
+            from lib.pointnet2.pointnet2_modules import PointnetSAModulePAConv as PointnetSAModuleBackbone
+        else:
+            from lib.pointnet2.pointnet2_modules import PointnetSAModuleVotes as PointnetSAModuleBackbone
 
         # --------- 4 SET ABSTRACTION LAYERS ---------
-        self.sa1 = PointnetSAModuleVotes(
+        self.sa1 = PointnetSAModuleBackbone(
                 npoint=2048,
                 radius=0.2,
                 nsample=64,
                 mlp=[input_feature_dim, 64, 64, 128],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                args = args
             )
 
-        self.sa2 = PointnetSAModuleVotes(
+        self.sa2 = PointnetSAModuleBackbone(
                 npoint=1024,
                 radius=0.4,
                 nsample=32,
                 mlp=[128, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                args = args
             )
 
-        self.sa3 = PointnetSAModuleVotes(
+        self.sa3 = PointnetSAModuleBackbone(
                 npoint=512,
                 radius=0.8,
                 nsample=16,
                 mlp=[256, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                args = args
             )
 
-        self.sa4 = PointnetSAModuleVotes(
+        self.sa4 = PointnetSAModuleBackbone(
                 npoint=256,
                 radius=1.2,
                 nsample=16,
                 mlp=[256, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                args = args
             )
 
         # --------- 2 FEATURE UPSAMPLING LAYERS --------
@@ -94,30 +102,31 @@ class Pointnet2Backbone(nn.Module):
         """
         
         pointcloud = data_dict["point_clouds"]
+
         ######### new #########
-        if not self.args.no_reference:
-            lang_feat = data_dict['lang_emb']
+        lang_feat = data_dict['lang_emb'] if not self.args.no_reference else None
+        ######### ... #########
 
         batch_size = pointcloud.shape[0]
 
         xyz, features = self._break_up_pc(pointcloud)
 
         # --------- 4 SET ABSTRACTION LAYERS ---------
-        xyz, features, fps_inds = self.sa1(xyz, features)
+        xyz, features, fps_inds = self.sa1(xyz, features, lang_feat = lang_feat)
         data_dict['sa1_inds'] = fps_inds
         data_dict['sa1_xyz'] = xyz
         data_dict['sa1_features'] = features
 
-        xyz, features, fps_inds = self.sa2(xyz, features) # this fps_inds is just 0,1,...,1023
+        xyz, features, fps_inds = self.sa2(xyz, features, lang_feat = lang_feat) # this fps_inds is just 0,1,...,1023
         data_dict['sa2_inds'] = fps_inds
         data_dict['sa2_xyz'] = xyz
         data_dict['sa2_features'] = features
 
-        xyz, features, fps_inds = self.sa3(xyz, features) # this fps_inds is just 0,1,...,511
+        xyz, features, fps_inds = self.sa3(xyz, features, lang_feat = lang_feat) # this fps_inds is just 0,1,...,511
         data_dict['sa3_xyz'] = xyz
         data_dict['sa3_features'] = features
 
-        xyz, features, fps_inds = self.sa4(xyz, features) # this fps_inds is just 0,1,...,255
+        xyz, features, fps_inds = self.sa4(xyz, features, lang_feat = lang_feat) # this fps_inds is just 0,1,...,255
         data_dict['sa4_xyz'] = xyz
         data_dict['sa4_features'] = features
 
