@@ -9,6 +9,7 @@ import time
 import torch
 import numpy as np
 from tqdm import tqdm
+from torch import distributed as dist
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 
@@ -85,7 +86,7 @@ BEST_REPORT_TEMPLATE = """
 """
 
 class Solver():
-    def __init__(self, model, config, dataloader, optimizer, stamp, val_step=10, 
+    def __init__(self, model, config, dataloader, sampler, optimizer, local_rank, stamp, val_step=10, 
     detection=True, reference=True, use_lang_classifier=True,
     lr_decay_step=None, lr_decay_rate=None, bn_decay_step=None, bn_decay_rate=None):
 
@@ -95,7 +96,9 @@ class Solver():
         self.model = model
         self.config = config
         self.dataloader = dataloader
+        self.sampler = sampler
         self.optimizer = optimizer
+        self.local_rank = local_rank
         self.stamp = stamp
         self.val_step = val_step
 
@@ -187,12 +190,13 @@ class Solver():
                 self._log("epoch {} starting...".format(epoch_id + 1))
 
                 # feed 
-                self._feed(self.dataloader["train"], "train", epoch_id)
+                self._feed(self.dataloader["train"], self.sampler['train'], "train", epoch_id)
 
                 # save model
-                self._log("saving last models...\n")
-                model_root = os.path.join(CONF.PATH.OUTPUT, self.stamp)
-                torch.save(self.model.state_dict(), os.path.join(model_root, "model_last.pth"))
+                if self.local_rank == 0:
+                    self._log("saving last models...\n")
+                    model_root = os.path.join(CONF.PATH.OUTPUT, self.stamp)
+                    torch.save(self.model.state_dict(), os.path.join(model_root, "model_last.pth"))
 
                 # update lr scheduler
                 if self.lr_scheduler:
@@ -208,6 +212,8 @@ class Solver():
                 # finish training
                 self._finish(epoch_id)
                 exit()
+            
+            dist.barrier()
 
         # finish training
         self._finish(epoch_id)
@@ -218,6 +224,9 @@ class Solver():
         print(info_str)
 
     def _reset_log(self, phase):
+        if self.local_rank > 0:
+            return
+            
         self.log[phase] = {
             # info
             "forward": [],
@@ -255,6 +264,12 @@ class Solver():
 
         return data_dict
 
+    def reduce_mean(self, tensor, nprocs):  # 用于平均所有gpu上的运行结果，比如loss
+        rt = tensor.clone()
+        dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+        rt /= nprocs
+        return rt
+
     def _backward(self):
         # optimize
         self.optimizer.zero_grad()
@@ -276,7 +291,7 @@ class Solver():
         self._running_log["objectness_loss"] = data_dict["objectness_loss"]
         self._running_log["vote_loss"] = data_dict["vote_loss"]
         self._running_log["box_loss"] = data_dict["box_loss"]
-        self._running_log["loss"] = data_dict["loss"]
+        self._running_log["loss"] = self.reduce_mean(data_dict["loss"], dist.get_world_size())
 
     def _eval(self, data_dict):
         data_dict = get_eval(
@@ -295,12 +310,16 @@ class Solver():
         self._running_log["iou_rate_0.25"] = np.mean(data_dict["ref_iou_rate_0.25"])
         self._running_log["iou_rate_0.5"] = np.mean(data_dict["ref_iou_rate_0.5"])
 
-    def _feed(self, dataloader, phase, epoch_id):
+    def _feed(self, dataloader, sampler, phase, epoch_id):
+        # sample
+        sampler.set_epoch(epoch_id)
+
         # switch mode
         self._set_phase(phase)
 
         # re-init log
-        self._reset_log(phase)
+        if self.local_rank == 0:
+            self._reset_log(phase)
 
         # change dataloader
         dataloader = dataloader if phase == "train" else tqdm(dataloader)
@@ -308,7 +327,7 @@ class Solver():
         for data_dict in dataloader:
             # move to cuda
             for key in data_dict:
-                data_dict[key] = data_dict[key].cuda()
+                data_dict[key] = data_dict[key].cuda(self.local_rank, non_blocking=True)
 
             # initialize the running loss
             self._running_log = {
@@ -381,12 +400,14 @@ class Solver():
                     print("evaluating...")
                     # val
                     self._feed(self.dataloader["val"], "val", epoch_id)
-                    self._dump_log("val")
+                    if self.local_rank == 0:
+                        self._dump_log("val")
                     self._set_phase("train")
                     self._epoch_report(epoch_id)
 
                 # dump log
-                self._dump_log("train")
+                if self.local_rank == 0:
+                    self._dump_log("train")
                 self._global_iter_id += 1
 
 
@@ -419,6 +440,9 @@ class Solver():
                 torch.save(self.model.state_dict(), os.path.join(model_root, "model.pth"))
 
     def _dump_log(self, phase):
+        if self.local_rank > 0:
+            return
+
         log = {
             "loss": ["loss", "ref_loss", "lang_loss", "objectness_loss", "vote_loss", "box_loss"],
             "score": ["lang_acc", "ref_acc", "obj_acc", "pos_ratio", "neg_ratio", "iou_rate_0.25", "iou_rate_0.5"]
@@ -432,6 +456,9 @@ class Solver():
                 )
 
     def _finish(self, epoch_id):
+        if self.local_rank > 0:
+            return
+
         # print best
         self._best_report()
 

@@ -12,6 +12,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from datetime import datetime
 from copy import deepcopy
+from torch import distributed as dist
 
 sys.path.append(os.path.join(os.getcwd())) # HACK add the root folder
 from data.scannet.model_util_scannet import ScannetDatasetConfig
@@ -26,6 +27,12 @@ SCANREFER_VAL = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_
 # constants
 DC = ScannetDatasetConfig()
 
+def reduce_mean(tensor, nprocs):  # 用于平均所有gpu上的运行结果，比如loss
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    rt /= nprocs
+    return rt
+
 def get_dataloader(args, scanrefer, all_scene_list, split, config, augment):
     dataset = ScannetReferenceDataset(
         scanrefer=scanrefer[split], 
@@ -38,9 +45,18 @@ def get_dataloader(args, scanrefer, all_scene_list, split, config, augment):
         use_multiview=args.use_multiview
     )
     # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
+    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
+    sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                         batch_size=args.batch_size,
+                                         shuffle=False,
+                                         num_workers=16,
+                                         pin_memory=True,
+                                         drop_last=True,
+                                         sampler=sampler)
 
-    return dataset, dataloader
+
+    return dataset, dataloader, sampler
 
 def get_model(args):
     # initiate model
@@ -99,7 +115,14 @@ def get_model(args):
                 param.requires_grad = False
     
     # to CUDA
-    model = model.cuda()
+    model = model.cuda(args.local_rank)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    print(model.device)
+    model = torch.nn.parallel.DistributedDataParallel(model, 
+                                                     device_ids=args.local_rank, 
+                                                     output_device=args.local_rank, 
+                                                     find_unused_parameters=False, 
+                                                     broadcast_buffers=False)
 
     return model
 
@@ -109,7 +132,7 @@ def get_num_params(model):
 
     return num_params
 
-def get_solver(args, dataloader):
+def get_solver(args, dataloader, sampler):
     model = get_model(args)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
@@ -136,7 +159,9 @@ def get_solver(args, dataloader):
         model=model, 
         config=DC, 
         dataloader=dataloader, 
+        sampler=sampler,
         optimizer=optimizer, 
+        local_rank = args.local_rank,
         stamp=stamp, 
         val_step=args.val_step,
         detection=not args.no_detection,
@@ -145,7 +170,7 @@ def get_solver(args, dataloader):
         lr_decay_step=LR_DECAY_STEP,
         lr_decay_rate=LR_DECAY_RATE,
         bn_decay_step=BN_DECAY_STEP,
-        bn_decay_rate=BN_DECAY_RATE
+        bn_decay_rate=BN_DECAY_RATE,
     )
     num_params = get_num_params(model)
 
@@ -222,15 +247,19 @@ def train(args):
     }
 
     # dataloader
-    train_dataset, train_dataloader = get_dataloader(args, scanrefer, all_scene_list, "train", DC, True)
-    val_dataset, val_dataloader = get_dataloader(args, scanrefer, all_scene_list, "val", DC, False)
+    train_dataset, train_dataloader, train_sampler = get_dataloader(args, scanrefer, all_scene_list, "train", DC, True)
+    val_dataset, val_dataloader, val_sampler = get_dataloader(args, scanrefer, all_scene_list, "val", DC, False)
     dataloader = {
         "train": train_dataloader,
         "val": val_dataloader
     }
+    sampler = {
+        "train": train_sampler,
+        "val": val_sampler
+    }
 
     print("initializing...")
-    solver, num_params, root = get_solver(args, dataloader)
+    solver, num_params, root = get_solver(args, dataloader, sampler)
 
     print("Start training...\n")
     save_info(args, root, num_params, train_dataset, val_dataset)
@@ -239,7 +268,7 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", type=str, help="tag for the training, e.g. cuda_wl", default="")
-    parser.add_argument("--gpu", type=str, help="gpu", default="1")
+    # parser.add_argument("--gpu", type=str, help="gpu", default="2")
     parser.add_argument("--batch_size", type=int, help="batch size", default=10)
     parser.add_argument("--epoch", type=int, help="number of epochs", default=50)
     parser.add_argument("--verbose", type=int, help="iterations of showing verbose", default=10)
@@ -264,6 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_paconv", action='store_true', help="use paconv in backbone.")
     parser.add_argument("--use_lang_paconv", action='store_true', help="use lang features in paconv.")
     parser.add_argument("--lang_hidden", type=int, default=256, help="hidden features layer in lang module.")
+    parser.add_argument('--local_rank', default=-1, type=int) 
     ######### ... #########
 
     parser.add_argument("--use_pretrained", type=str, help="Specify the folder name containing the pretrained detection module.")
@@ -271,8 +301,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # setting
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    torch.distributed.init_process_group(backend="nccl") 
+    torch.cuda.set_device(args.local_rank) 
 
     # reproducibility
     torch.manual_seed(args.seed)
